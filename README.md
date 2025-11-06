@@ -156,6 +156,33 @@ The handler layer exposes HTTP endpoints to clients via Gin. Gin spawns a **goro
 This design ensures **safe concurrent reads and writes**, separates concerns between layers, and allows **highly concurrent HTTP access**.
 
 ---
+## Unit Tests
+
+The project includes comprehensive unit tests for the repository, service, and handler layers, ensuring correctness, concurrency safety, and proper error handling.
+
+### Repository Layer Tests
+
+The repository layer (`MemoryRepo`) tests cover:
+
+- **Recording Bids**: Ensures valid bids are recorded, handles edge cases such as zero, negative, extremely large amounts, and future/past timestamps.
+- **Getting Bids by Item**: Verifies retrieval of all bids for a given item, including items with no bids, non-existing items, and large datasets.
+- **Getting Winning Bid**: Determines the highest bid for an item, including tie scenarios, extreme values, and concurrent access.
+- **Getting Items by User**: Retrieves all items a user has placed bids on, handling duplicates, large bid volumes, and concurrent access.
+
+The repository tests use **table-driven testing**, **parallel subtests**, and **concurrency tests** with `sync.WaitGroup` to simulate multiple users bidding concurrently.
+
+### Service Layer Tests
+
+The BiddingService tests cover:
+
+- **PlaceBid**: Validates bid placement logic, checking minimum/maximum amounts, empty fields, low bids, and repository errors.
+- **GetBidsForItem**: Retrieves all bids for an item, including handling no bids, repository errors, and invalid requests.
+- **GetWinningBid**: Confirms correct winning bid is returned, handling errors and edge cases.
+- **GetItemsByUser**: Ensures correct items are retrieved for a user, including no items and repository errors.
+
+The service tests use **gomock** for mocking the repository and **table-driven test cases** for all scenarios.
+
+---
 
 ### Integration Tests
 
@@ -195,7 +222,7 @@ This approach ensures that the API behaves correctly under realistic conditions 
 ---
 ### Performance Tests
 
-The project includes performance benchmarks to evaluate the auction system under different workloads. These tests measure throughput, latency, and memory usage for various bidding and query scenarios, using an in-memory repository.
+The project includes performance benchmarks to evaluate the system under different workloads. These tests measure throughput, latency, and memory usage for various bidding and query scenarios, using an in-memory repository.
 
 #### Benchmark Approach
 
@@ -250,6 +277,7 @@ The project includes performance benchmarks to evaluate the auction system under
    - Correctness under concurrent operations.
 
 This performance testing framework ensures that the auction system can handle realistic loads and maintain responsiveness and consistency under concurrent operations.
+
 
 
 
