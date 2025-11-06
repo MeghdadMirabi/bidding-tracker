@@ -182,6 +182,17 @@ The BiddingService tests cover:
 
 The service tests use **gomock** for mocking the repository and **table-driven test cases** for all scenarios.
 
+### Handler Layer Tests
+
+The BiddingHandler tests cover API endpoints implemented with Gin:
+
+- **RecordBidHandler**: Tests valid/invalid bid requests, JSON parsing errors, missing fields, invalid amounts, service errors, and concurrency scenarios.
+- **GetBidsByItemHandler**: Tests retrieval of bids for a specific item, including valid responses, no bids, invalid item IDs, and service errors.
+- **GetWinningBidHandler**: Ensures correct winning bid response and proper error handling.
+- **GetItemsByUserHandler**: Validates items retrieval for a user and error handling.
+  
+Handler tests use **httptest** to simulate HTTP requests and responses, and **parallel subtests** for concurrency scenarios.
+
 ---
 
 ### Integration Tests
@@ -277,6 +288,7 @@ The project includes performance benchmarks to evaluate the system under differe
    - Correctness under concurrent operations.
 
 This performance testing framework ensures that the auction system can handle realistic loads and maintain responsiveness and consistency under concurrent operations.
+
 
 
 
