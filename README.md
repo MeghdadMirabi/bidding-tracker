@@ -68,14 +68,15 @@ type Bid struct {
 }
 
 ```
+---
 ### Concurrency Approach
 
-The auction system supports multiple users interacting concurrently. Concurrency control is handled primarily in the **repository layer**, while the **service layer** orchestrates business logic and the **handler layer** exposes HTTP endpoints. The Gin framework spawns a separate goroutine for each incoming HTTP request, allowing concurrent access to the system.
+The system supports multiple users interacting concurrently. Concurrency control is handled primarily in the **repository layer**, while the **service layer** orchestrates business logic and the **handler layer** exposes HTTP endpoints. The Gin framework spawns a separate goroutine for each incoming HTTP request, allowing concurrent access to the system.
 
 
 #### Repository Layer (`MemoryRepo`)
 
-The repository stores all shared auction data in memory and uses a **read/write mutex (`sync.RWMutex`)** to prevent race conditions.  
+The repository stores all shared data in memory and uses a **read/write mutex (`sync.RWMutex`)** to prevent race conditions.  
 
 - **Read operations** (`RLock`) – allow multiple concurrent reads:
   - `GetBidsByItem(itemID string)` – returns all bids for a specific item.  
@@ -90,7 +91,6 @@ The mutex guarantees:
 - Concurrent reads do not block each other.  
 - Writes are safely serialized, preventing data races.  
 
-
 #### Service Layer (`BiddingService`)
 
 The service layer provides business logic and interacts with the repository. It **does not use additional locks** because the repository already manages concurrency.  
@@ -102,7 +102,7 @@ The service layer provides business logic and interacts with the repository. It 
 
 - `GetBidsForItem(itemID string)`  
   - Calls `MemoryRepo.GetBidsByItem` to fetch all bids for a given item.  
-  - Returns the bids in chronological order.  
+  - Returns the bids from the repository.  
 
 - `GetWinningBid(itemID string)`  
   - Calls `MemoryRepo.GetWinningBid` to determine the highest bid for the item.  
@@ -154,6 +154,104 @@ The handler layer exposes HTTP endpoints to clients via Gin. Gin spawns a **goro
 | **Handler (Gin)**  | RecordBidHandler, GetBidsByItemHandler, GetWinningBidHandler, GetItemsByUserHandler | Each request runs in its own goroutine; relies on repository for concurrency |
 
 This design ensures **safe concurrent reads and writes**, separates concerns between layers, and allows **highly concurrent HTTP access**.
+
+---
+
+### Integration Tests
+
+The project includes integration tests to verify the end-to-end behavior of the system. These tests simulate HTTP requests to the API endpoints using an in-memory repository, ensuring that the system works correctly without depending on an external database.
+
+#### Test Approach
+
+1. **Router Setup**  
+   Each test initializes a new `gin.Engine` router using an in-memory repository (`MemoryRepo`) and the `BiddingService`. Helper functions are provided to simplify router setup:
+   - `SetupTestRouter()` – Initializes the router with an empty repository.
+   - `SetupTestRouterWithItems(items ...Item)` – Initializes the router and seeds it with provided items.
+
+2. **Request Execution**  
+   Requests are executed and responses parsed using helper functions:
+   - `ExecuteRequest()` – Executes an HTTP request and returns the raw response recorder.
+   - `ExecuteRequestAndParse()` – Executes an HTTP request and parses the JSON response into a Go map for assertions.
+
+3. **Testing Scenarios**  
+   The integration tests cover the main API endpoints:
+   - `RecordBidHandler` – Tests placing a bid, including valid bids and invalid JSON input.
+   - `GetBidsByItemHandler` – Tests retrieving all bids for a specific item.
+   - `GetWinningBidHandler` – Tests retrieving the highest bid for an item, including scenarios where there are no bids or the item does not exist.
+   - `GetItemsByUserHandler` – Tests retrieving all items a specific user has bid on, including users with no bids or nonexistent users.
+
+4. **Assertions**  
+   The tests use `require` from `testify` to verify:
+   - HTTP status codes are as expected.
+   - Response payloads contain the correct data (e.g., bid amounts, user IDs, timestamps).
+   - Timestamps are valid RFC3339 format.
+   - Correct handling of empty results or nonexistent items/users.
+
+5. **Isolation**  
+   Each test uses a fresh in-memory repository, ensuring no cross-test interference and full isolation.
+
+This approach ensures that the API behaves correctly under realistic conditions while keeping tests fast and deterministic.
+
+---
+### Performance Tests
+
+The project includes performance benchmarks to evaluate the auction system under different workloads. These tests measure throughput, latency, and memory usage for various bidding and query scenarios, using an in-memory repository.
+
+#### Benchmark Approach
+
+1. **Repository and Service Setup**  
+   All performance tests use `MemoryRepo` with `BiddingService`. Each benchmark initializes items and users according to the scenario to simulate realistic load.
+
+2. **Benchmark Types**
+
+   - **PlaceBid - Isolated Items (Low Contention)**  
+     Measures bid placement on independent items with no concurrency. This micro-benchmark simulates users bidding on different items simultaneously, ensuring minimal contention.
+
+   - **PlaceBid - Shared Item (High Contention)**  
+     Simulates many users placing bids concurrently on a single item to test thread-safety and contention handling. Uses `b.RunParallel()` with atomic operations to ensure consistent bid increments.
+
+   - **GetWinningBid - Single Threaded (Low Contention)**  
+     Measures performance of retrieving the winning bid for multiple items sequentially, simulating low read concurrency.
+
+   - **GetWinningBid - Concurrent (High Contention)**  
+     Simulates multiple threads concurrently reading the winning bid for the same item, testing the system under high read contention.
+
+   - **Mixed Workload (Concurrent Readers and Writers)**  
+     Simulates a realistic scenario with both bid placements (writers) and winning bid queries (readers) on the same item. The workload ratio can be configured (e.g., 70% reads, 30% writes).
+
+   - **Load Scenarios**  
+     Configurable scenarios allow testing:
+       - Low vs. high contention
+       - Read-heavy vs. write-heavy workloads
+       - Mixed read/write workloads
+       - Burst traffic vs. steady traffic
+
+3. **Metrics Collected**
+
+   - **Throughput** – Total operations per second.
+   - **Latency** – Minimum, maximum, average, p95, and p99 latencies for operations.
+   - **Memory Usage** – Memory allocated during benchmark.
+   - **Success and Failure Counts** – Number of successful bids, failed bids, and read operations per scenario.
+   - **Item-Level Stats** – Number of successful bids per item.
+
+4. **Implementation Details**
+
+   - Benchmarks use Go’s `testing.B` and `b.RunParallel()` to simulate concurrency.
+   - Atomic counters (`atomic.AddInt64`) are used to safely track shared state.
+   - Randomized bid amounts and user IDs simulate realistic, unpredictable workloads.
+   - Optional burst mode can simulate peak load by removing artificial delays between operations.
+
+5. **Purpose**
+
+   These benchmarks help evaluate:
+   - System throughput under various contention and concurrency scenarios.
+   - Latency distribution under normal and peak loads.
+   - Memory consumption during high load.
+   - Correctness under concurrent operations.
+
+This performance testing framework ensures that the auction system can handle realistic loads and maintain responsiveness and consistency under concurrent operations.
+
+
 
 
 
